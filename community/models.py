@@ -1,7 +1,6 @@
+from django.contrib.auth.models import User
 from django.db import models
 
-from django.contrib.auth.models import User
-from django.conf import settings # Import settings to get AUTH_USER_MODEL if custom user model is used
 
 class Profile(models.Model):
     """
@@ -9,14 +8,17 @@ class Profile(models.Model):
     OneToOneField ensures each User has one Profile and vice-versa.
     """
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
-    # Add other profile fields here as needed, e.g., phone_number, address, etc.
-    # For now, we'll keep it simple as the user story only mentions "name, contact details"
-    # which are largely covered by the User model or can be implicitly handled.
-    # We'll just add a placeholder for future expansion.
+    phone = models.CharField(max_length=15, blank=True, null=True)
+    birthday = models.DateField(blank=True, null=True)
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, blank=True, null=True, related_name='children')
+    spouse = models.OneToOneField('self', on_delete=models.CASCADE, blank=True, null=True, related_name='partner')
+    total_savings = models.IntegerField(default=0, editable=False)
+    total_loans = models.IntegerField(default=0, editable=False)
     bio = models.TextField(blank=True, null=True)
 
     def __str__(self):
-        return f"Profile for {self.user.username}"
+        return f"{self.user.username} ({self.user.first_name} {self.user.last_name})"
+
 
 class Announcement(models.Model):
     """
@@ -33,6 +35,26 @@ class Announcement(models.Model):
 
     def __str__(self):
         return self.title
+
+class Minute(models.Model):
+    """
+    Model for meeting minutes. Only admins can create, edit, or delete these.
+    """
+    venue = models.CharField(max_length=200, unique_for_month="meeting_date")
+    meeting_date = models.DateField()
+    adopted = models.BooleanField()
+    content = models.TextField()
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='minutes_created')
+    adopter1 = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='minutes_adopted')
+    adopter2 = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='minutes_adopted2')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at'] # Order announcements by most recent first
+
+    def __str__(self):
+        return self.venue
 
 class Message(models.Model):
     """

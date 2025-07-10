@@ -1,5 +1,3 @@
-# ak
-
 <h1 style="text-align: center"> Meeting management </h1>
 
 <h1> High Level User Stories </h1>
@@ -51,3 +49,7 @@
 - **Authentication:** Attribute based access control
 - **db:** ?
 - **host:** ?
+
+admin
+> admin@ak.app
+> AK.principal

@@ -1,18 +1,16 @@
-from django.shortcuts import render
+from django.contrib.auth.models import User
+from rest_framework import viewsets, mixins, status
+from django.http import HttpResponse
 from rest_framework import viewsets, mixins, status
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from django.contrib.auth.models import User
 
 from . import models
-from .models import Profile, Announcement, Message
-from .serializers import UserSerializer, AnnouncementSerializer, MessageSerializer
+from .models import Announcement, Message
 from .permissions import IsAdminUser, IsOwnerOrAdminForMessage
-from rest_framework.permissions import IsAuthenticated
-from django.http import HttpResponse
+from .serializers import UserSerializer, AnnouncementSerializer, MessageSerializer
 
-def members(request):
-    return HttpResponse("Hello world!")
 
 class UserViewSet(mixins.RetrieveModelMixin,
                   mixins.ListModelMixin,
