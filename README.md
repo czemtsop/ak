@@ -44,12 +44,68 @@
     - Generate financial reports (e.g., total savings, total loans, interest accrued) so I can analyze the community's financial health.
     - Assign or revoke financial admin roles to other users.
 
+
+    <h1> MVP Features </h1>
+
+## CORE AUTHENTICATION & SECURITY		
+### Basic Authentication		
+- Secure login/logout functionality		
+- Password reset and recovery		
+- Session management and timeout		
+- Two-factor authentication (2FA)		
+- Account lockout after failed attempts		
+### Advanced Security		
+- Role-based access control (RBAC)		
+- Audit logging for all user actions		
+- Data encryption at rest and in transit		
+- Single Sign-On (SSO) integration (Google Preferably)		
+- Biometric authentication support		
+- IP whitelisting/blacklisting		
+## COMMUNITY MODULE		
+### Member Management		
+- User profile creation and management		
+- Profile picture upload and management		
+- Contact information management		
+- Member directory with search and filtering		
+- Advanced search with multiple criteria		
+- Member status indicators (online/offline)		
+### Communication Features		
+- General announcements system		
+- Push notifications for messages		
+- Email notifications integration		
+### Community Features		
+- Community calendar/events		
+- Document sharing library		
+- Photo/video galleries		
+- Member rating/feedback system		
+### Administrative Functions		
+- User account management (create, edit, deactivate)		
+- Role assignment and management		
+- Bulk user operations		
+## FINANCE MODULE		
+### Basic Financial Operations		
+- Savings account management		
+- Loan account management		
+- Transaction recording and tracking		
+- Balance inquiries and statements		
+- Transaction categorization		
+### Savings Management		
+- Deposit recording and tracking		
+- Savings history and statements		
+### Loan Management		
+- Loan application system		
+
     <h1> Technical Implementation </h1>
 
-- **Authentication:** Attribute based access control
-- **db:** ?
+**Backend:** Python (Django)
+- **Frontend:** Flutter
+- **ERD:** ![erd.png](erd.png)
+- **db:** PostGres
+- **Authentication:** OAuth
+
 - **host:** ?
 
-admin
-> admin@ak.app
-> AK.principal
+> admin
+
+    - admin@ak.app
+    - AK.principal
