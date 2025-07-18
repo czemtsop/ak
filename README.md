@@ -104,6 +104,7 @@
 - **Authentication:** OAuth
 
 - **host:** ?
+- **Feature list: [doc](https://docs.google.com/spreadsheets/d/1gvYp196B3WAuzDsnZcxZFe0Rmy9EEv4cBeUQih1lLYg/edit?usp=sharing)
 
 > admin
 
