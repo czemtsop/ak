@@ -1,120 +1,235 @@
 from django.contrib.auth.models import User
-from rest_framework import viewsets, mixins, status
 from django.http import HttpResponse
-from rest_framework import viewsets, mixins, status
-from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework import viewsets, status, mixins, permissions
+from rest_framework.decorators import action
 from rest_framework.response import Response
-
+from .models import *
+from .serializers import *
+from .webhooks import WebhookManager
 from . import models
 from .models import Announcement, Message
 from .permissions import IsAdminUser, IsOwnerOrAdminForMessage
 from .serializers import UserSerializer, AnnouncementSerializer, MessageSerializer
 
 
-class UserViewSet(mixins.RetrieveModelMixin,
-                  mixins.ListModelMixin,
-                  mixins.UpdateModelMixin, # For updating profile
-                  viewsets.GenericViewSet):
-    """
-    API endpoint that allows users to be viewed or edited.
-    - Members can list all other members.
-    - Members can retrieve their own profile.
-    - Members can update their own profile.
-    - Admins can manage user accounts (add, deactivate - though 'add' is not explicitly here,
-      it's usually done via Django Admin or a separate registration endpoint).
-      For simplicity, deactivation can be done by admin setting `is_active` to False.
-    """
-    queryset = User.objects.filter(is_active=True).order_by('username') # Only show active users
-    serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
-    search_fields = ['username', 'first_name', 'last_name', 'email'] # Enable search for members
+class BranchViewSet(viewsets.ModelViewSet):
+    queryset = Branch.objects.all()
+    serializer_class = BranchSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
-    def get_queryset(self):
-        """
-        Allow admins to see all users (including inactive for management),
-        but members only see active users.
-        """
-        if self.request.user.is_staff:
-            return User.objects.all().order_by('username')
-        return super().get_queryset()
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        WebhookManager.trigger_webhook('branch.created', instance)
 
-    def get_object(self):
-        """
-        Allow authenticated users to retrieve their own profile using '/users/me/'.
-        Otherwise, use the default lookup for other users.
-        """
-        if self.action == 'me':
-            return self.request.user
-        return super().get_object()
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        WebhookManager.trigger_webhook('branch.updated', instance)
 
-    @action(detail=False, methods=['get', 'put'], url_path='me')
-    def me(self, request):
-        """
-        Endpoint for authenticated user to view and update their own profile.
-        """
-        if request.method == 'GET':
-            serializer = self.get_serializer(request.user)
+    def perform_destroy(self, instance):
+        WebhookManager.trigger_webhook('branch.deleted', instance)
+        instance.delete()
+
+
+class MemberViewSet(viewsets.ModelViewSet):
+    queryset = Member.objects.all()
+    serializer_class = MemberSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        WebhookManager.trigger_webhook('member.created', instance)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        WebhookManager.trigger_webhook('member.updated', instance)
+
+    @action(detail=True, methods=['get'])
+    def finances(self, request, pk=None):
+        member = self.get_object()
+        try:
+            finances = MemberFinances.objects.get(user=member)
+            serializer = MemberFinancesSerializer(finances)
             return Response(serializer.data)
-        elif request.method == 'PUT':
-            serializer = self.get_serializer(request.user, data=request.data, partial=True)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return Response(serializer.data)
+        except MemberFinances.DoesNotExist:
+            return Response({'error': 'Finances not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['get'])
+    def loans(self, request, pk=None):
+        member = self.get_object()
+        loans = MemberLoan.objects.filter(user=member)
+        serializer = MemberLoanSerializer(loans, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get'])
+    def deposits(self, request, pk=None):
+        member = self.get_object()
+        deposits = MemberDeposit.objects.filter(member=member)
+        serializer = MemberDepositSerializer(deposits, many=True)
+        return Response(serializer.data)
 
 
 class AnnouncementViewSet(viewsets.ModelViewSet):
-    """
-    API endpoint that allows announcements to be viewed, created, edited or deleted.
-    - Members can see general announcements (GET).
-    - Admins can create, edit, and delete general announcements (POST, PUT/PATCH, DELETE).
-    """
     queryset = Announcement.objects.all()
     serializer_class = AnnouncementSerializer
-    permission_classes = [IsAuthenticated, IsAdminUser] # Requires authentication and admin status for write ops
+    permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
-        """
-        Set the created_by field to the current authenticated user.
-        """
-        serializer.save(created_by=self.request.user)
+        instance = serializer.save(created_by=self.request.user)
+        WebhookManager.trigger_webhook('announcement.created', instance)
 
-class MessageViewSet(viewsets.ModelViewSet):
-    """
-    API endpoint that allows messages to be viewed, created, edited or deleted.
-    - Members can receive and view specific messages sent directly to them.
-    - Admins can view all specific messages.
-    """
-    serializer_class = MessageSerializer
-    permission_classes = [IsAuthenticated, IsOwnerOrAdminForMessage]
+    def perform_update(self, serializer):
+        instance = serializer.save(updated_by=self.request.user)
+        WebhookManager.trigger_webhook('announcement.updated', instance)
 
     def get_queryset(self):
-        """
-        Filter messages to only show those sent to or by the current user,
-        or all messages if the user is an admin.
-        """
-        user = self.request.user
-        if user.is_staff: # Admin can view all messages
-            return Message.objects.all().order_by('-created_at')
-        # Members can only see messages where they are sender or receiver
-        return Message.objects.filter(models.Q(sender=user) | models.Q(receiver=user)).order_by('-created_at')
+        queryset = Announcement.objects.all()
+        branch = self.request.query_params.get('branch', None)
+        if branch is not None:
+            queryset = queryset.filter(branch=branch)
+        return queryset
+
+
+class EventViewSet(viewsets.ModelViewSet):
+    queryset = Event.objects.all()
+    serializer_class = EventSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def perform_create(self, serializer):
-        """
-        Set the sender of the message to the current authenticated user.
-        The receiver is handled by the serializer's create method.
-        """
-        serializer.save(sender=self.request.user)
+        instance = serializer.save(created_by=self.request.user)
+        WebhookManager.trigger_webhook('event.created', instance)
+
+    def perform_update(self, serializer):
+        instance = serializer.save(updated_by=self.request.user)
+        WebhookManager.trigger_webhook('event.updated', instance)
+
+    def get_queryset(self):
+        queryset = Event.objects.all()
+        branch = self.request.query_params.get('branch', None)
+        if branch is not None:
+            queryset = queryset.filter(branch=branch)
+        return queryset
+
+
+class MemberPaymentViewSet(viewsets.ModelViewSet):
+    queryset = MemberPayment.objects.all()
+    serializer_class = MemberPaymentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        WebhookManager.trigger_webhook('payment.created', instance)
+
+    def get_queryset(self):
+        queryset = MemberPayment.objects.all()
+        user = self.request.query_params.get('user', None)
+        if user is not None:
+            queryset = queryset.filter(user=user)
+        return queryset
+
+
+class DepositViewSet(viewsets.ModelViewSet):
+    queryset = Deposit.objects.all()
+    serializer_class = DepositSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        WebhookManager.trigger_webhook('deposit.created', instance)
+
+    def perform_update(self, serializer):
+        instance = serializer.save(updated_by=self.request.user)
+        WebhookManager.trigger_webhook('deposit.updated', instance)
+
+
+class MemberDepositViewSet(viewsets.ModelViewSet):
+    queryset = MemberDeposit.objects.all()
+    serializer_class = MemberDepositSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        WebhookManager.trigger_webhook('member_deposit.created', instance)
+
+
+class LoanViewSet(viewsets.ModelViewSet):
+    queryset = Loan.objects.all()
+    serializer_class = LoanSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        WebhookManager.trigger_webhook('loan.created', instance)
+
+    def perform_update(self, serializer):
+        instance = serializer.save(updated_by=self.request.user)
+        WebhookManager.trigger_webhook('loan.updated', instance)
+
+
+class MemberLoanViewSet(viewsets.ModelViewSet):
+    queryset = MemberLoan.objects.all()
+    serializer_class = MemberLoanSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        WebhookManager.trigger_webhook('member_loan.created', instance)
+
+
+class DocumentViewSet(viewsets.ModelViewSet):
+    queryset = Document.objects.all()
+    serializer_class = DocumentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        instance = serializer.save(uploaded_by=self.request.user)
+        WebhookManager.trigger_webhook('document.uploaded', instance)
+
+
+class MinuteViewSet(viewsets.ModelViewSet):
+    queryset = Minute.objects.all()
+    serializer_class = MinuteSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        instance = serializer.save(created_by=self.request.user)
+        WebhookManager.trigger_webhook('minute.created', instance)
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        WebhookManager.trigger_webhook('minute.updated', instance)
+
+
+class FeedbackViewSet(viewsets.ModelViewSet):
+    queryset = Feedback.objects.all()
+    serializer_class = FeedbackSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        instance = serializer.save(created_by=self.request.user)
+        WebhookManager.trigger_webhook('feedback.created', instance)
+
+
+class MessageViewSet(viewsets.ModelViewSet):
+    queryset = Message.objects.all()
+    serializer_class = MessageSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        instance = serializer.save(sender=self.request.user)
+        WebhookManager.trigger_webhook('message.sent', instance)
+
+    def get_queryset(self):
+        user = self.request.user
+        return Message.objects.filter(Q(sender=user) | Q(receiver=user))
 
     @action(detail=True, methods=['post'])
-    def mark_as_read(self, request, pk=None):
-        """
-        Action to mark a specific message as read.
-        Only the receiver of the message can mark it as read.
-        """
+    def mark_read(self, request, pk=None):
         message = self.get_object()
-        if request.user == message.receiver:
+        if message.receiver == request.user:
             message.read_status = True
             message.save()
+            WebhookManager.trigger_webhook('message.read', message)
             return Response({'status': 'message marked as read'})
-        return Response({'detail': 'You are not authorized to mark this message as read.'}, status=status.HTTP_403_FORBIDDEN)
+        return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+
